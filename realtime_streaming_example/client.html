@@ -2,31 +2,137 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Streaming Audio Playback</title>
+  <title>Realtime Voice Assistant Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; line-height: 1.5; }
+    textarea { width: 100%; max-width: 40rem; }
+    button { margin-top: 0.5rem; }
+    section { margin-bottom: 2.5rem; }
+    .status { font-family: monospace; color: #555; }
+    .transcript { white-space: pre-line; }
+  </style>
 </head>
 <body>
-  <h1>Streaming Audio Playback</h1>
-  <form id="promptForm">
-    <label for="promptInput">Enter Prompt:</label><br>
-    <textarea id="promptInput" rows="4" cols="50" placeholder="Type your prompt here" required></textarea><br>
-    <button type="submit">Play Audio</button>
-  </form>
-  <audio id="audioPlayer" controls autoplay></audio>
-  <script>
-    const base_url = `https://<enter-hostname-here>`;
+  <h1>Realtime STT → LLM → TTS Pipeline</h1>
+  <p>Set <code>baseUrl</code> to the hostname where the Flask app is running.</p>
 
-    document.getElementById("promptForm").addEventListener("submit", function(event) {
+  <section>
+    <h2>TTS Only</h2>
+    <form id="promptForm">
+      <label for="promptInput">Enter Prompt:</label><br>
+      <textarea id="promptInput" rows="4" placeholder="Type your prompt here" required></textarea><br>
+      <button type="submit">Play Audio</button>
+    </form>
+    <audio id="ttsAudio" controls></audio>
+  </section>
+
+  <section>
+    <h2>Voice Assistant</h2>
+    <p>Press record, speak, then stop to send audio through Whisper → GPT → Orpheus.</p>
+    <button id="recordButton">Start Recording</button>
+    <div class="status" id="recordStatus">Idle</div>
+    <audio id="assistantAudio" controls></audio>
+    <div>
+      <h3>User Transcript</h3>
+      <p id="userTranscript" class="transcript">—</p>
+    </div>
+    <div>
+      <h3>Assistant Reply</h3>
+      <p id="assistantReply" class="transcript">—</p>
+    </div>
+  </section>
+
+  <script>
+    const baseUrl = 'https://<enter-hostname-here>';
+
+    // ----- TTS demo -----
+    document.getElementById('promptForm').addEventListener('submit', function (event) {
       event.preventDefault();
-      const prompt = document.getElementById("promptInput").value;
-      const encodedPrompt = encodeURIComponent(prompt);
-      const audioUrl = `${base_url}/tts?prompt=` + encodedPrompt;
-      
-      // Set the audio element's src to your endpoint to stream and play the audio data
-      const audioPlayer = document.getElementById("audioPlayer");
+      const prompt = document.getElementById('promptInput').value;
+      const audioUrl = `${baseUrl}/tts?prompt=${encodeURIComponent(prompt)}`;
+      const audioPlayer = document.getElementById('ttsAudio');
       audioPlayer.src = audioUrl;
-      audioPlayer.load();
-      audioPlayer.play().catch(err => console.error("Playback error:", err));
+      audioPlayer.play().catch(err => console.error('Playback error:', err));
     });
+
+    // ----- Voice assistant demo -----
+    const recordButton = document.getElementById('recordButton');
+    const recordStatus = document.getElementById('recordStatus');
+    const assistantAudio = document.getElementById('assistantAudio');
+    const userTranscript = document.getElementById('userTranscript');
+    const assistantReply = document.getElementById('assistantReply');
+
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recordedChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+
+        mediaRecorder.addEventListener('dataavailable', event => {
+          if (event.data.size > 0) recordedChunks.push(event.data);
+        });
+
+        mediaRecorder.addEventListener('stop', handleRecordingStop);
+        mediaRecorder.start();
+        isRecording = true;
+        recordButton.textContent = 'Stop Recording';
+        recordStatus.textContent = 'Recording…';
+      } catch (err) {
+        console.error('Unable to start recording:', err);
+        recordStatus.textContent = 'Microphone permission denied';
+      }
+    }
+
+    async function stopRecording() {
+      if (!mediaRecorder) return;
+      mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      isRecording = false;
+      recordButton.textContent = 'Start Recording';
+      recordStatus.textContent = 'Processing…';
+    }
+
+    recordButton.addEventListener('click', () => {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    });
+
+    async function handleRecordingStop() {
+      const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'input.webm');
+
+      try {
+        const response = await fetch(`${baseUrl}/voice-assistant`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(errorPayload.error || `Request failed: ${response.status}`);
+        }
+
+        userTranscript.textContent = response.headers.get('X-Transcript') || '—';
+        assistantReply.textContent = response.headers.get('X-Assistant-Text') || '—';
+
+        const audioData = await response.blob();
+        const objectUrl = URL.createObjectURL(audioData);
+        assistantAudio.src = objectUrl;
+        await assistantAudio.play();
+        recordStatus.textContent = 'Done';
+      } catch (err) {
+        console.error('Voice assistant error:', err);
+        recordStatus.textContent = err.message;
+      }
+    }
   </script>
 </body>
 </html>
