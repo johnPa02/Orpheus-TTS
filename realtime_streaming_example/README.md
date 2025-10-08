@@ -23,6 +23,8 @@ export OPENAI_API_KEY=sk-...
 export OPENAI_STT_MODEL=whisper-1
 export OPENAI_CHAT_MODEL=gpt-4o-mini
 export VOICE_ASSISTANT_SYSTEM_PROMPT="You are a helpful voice assistant."
+# swap Orpheus model if you have another checkpoint
+export ORPHEUS_MODEL_NAME=canopylabs/orpheus-tts-0.1-finetune-prod
 ```
 
 Install the dependencies (adjust as needed for your environment):
