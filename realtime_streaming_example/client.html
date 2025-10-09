@@ -2,166 +2,94 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Realtime Voice Assistant (Whisper → GPT → Orpheus)</title>
+  <title>Realtime LLM + TTS Demo</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.6; }
-    h1 { color: #333; }
-    textarea { width: 100%; max-width: 40rem; }
-    button { margin-top: 0.5rem; padding: 0.5rem 1rem; }
-    section { margin-bottom: 3rem; }
-    .status { font-family: monospace; color: #666; margin-top: 0.25rem; }
-    .transcript { white-space: pre-line; border-left: 3px solid #ccc; padding-left: 0.75rem; }
-    audio { margin-top: 1rem; width: 100%; max-width: 40rem; }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 50px auto;
+      text-align: center;
+      background: #fafafa;
+      color: #333;
+    }
+    h1 {
+      color: #2c3e50;
+    }
+    textarea {
+      width: 90%;
+      margin-top: 10px;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      resize: vertical;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: white;
+      background-color: #3498db;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    #audioPlayer {
+      margin-top: 20px;
+      width: 90%;
+    }
   </style>
 </head>
 <body>
-  <h1>🎙️ Realtime STT → LLM → TTS Demo</h1>
-  <p>Set <code>baseUrl</code> to your Flask server (e.g. <code>http://localhost:8080</code> or your RunPod proxy URL).</p>
+  <h1>🎙️ Realtime LLM + TTS Streaming</h1>
 
-  <!-- ==================== TTS Demo ==================== -->
-  <section>
-    <h2>🗣️ Text-to-Speech (TTS)</h2>
-    <form id="promptForm">
-      <label for="promptInput">Enter Prompt:</label><br>
-      <textarea id="promptInput" rows="3" placeholder="Type your prompt here..." required></textarea><br>
-      <button type="submit">Play Audio</button>
-    </form>
-    <audio id="ttsAudio" controls></audio>
-  </section>
+  <form id="promptForm">
+    <label for="promptInput"><b>Enter Prompt:</b></label><br>
+    <textarea id="promptInput" rows="4" cols="50" placeholder="Type your message here..." required></textarea><br>
+    <button type="submit">🗣️ Play TTS Only</button>
+    <button type="button" id="chatBtn">💬 LLM + TTS</button>
+  </form>
 
-  <!-- ==================== Voice Assistant ==================== -->
-  <section>
-    <h2>🤖 Voice Assistant (Realtime Streaming)</h2>
-    <p>Press record, speak, then wait — it’ll transcribe your voice, reply with GPT, and stream Orpheus TTS back in real time.</p>
-    <button id="recordButton">Start Recording</button>
-    <div class="status" id="recordStatus">Idle</div>
-    <audio id="assistantAudio" controls></audio>
-
-    <div>
-      <h3>User Transcript</h3>
-      <p id="userTranscript" class="transcript">—</p>
-    </div>
-    <div>
-      <h3>Assistant Reply</h3>
-      <p id="assistantReply" class="transcript">—</p>
-    </div>
-  </section>
+  <audio id="audioPlayer" controls autoplay></audio>
 
   <script>
-    const baseUrl = 'https://8cv8jn83kwcr09-8080.proxy.runpod.net'; // change if running locally
+    // Thay đổi URL tương ứng với RunPod / server của bạn
+    const base_url = `https://ia8be1n72rfzhr-8080.proxy.runpod.net`;
 
-    // ---------- 🔊 TTS Demo ----------
-    document.getElementById('promptForm').addEventListener('submit', function (event) {
+    const audioPlayer = document.getElementById("audioPlayer");
+    const promptInput = document.getElementById("promptInput");
+
+    // 🟢 1. Chỉ TTS (phát prompt trực tiếp)
+    document.getElementById("promptForm").addEventListener("submit", function(event) {
       event.preventDefault();
-      const prompt = document.getElementById('promptInput').value;
-      const audioUrl = `${baseUrl}/tts?prompt=${encodeURIComponent(prompt)}&ts=${Date.now()}`;
-      const player = document.getElementById('ttsAudio');
-      player.src = audioUrl;
-      player.play().catch(err => console.error('Playback error:', err));
+      const prompt = promptInput.value.trim();
+      if (!prompt) return alert("Please enter a prompt first!");
+
+      const encodedPrompt = encodeURIComponent(prompt);
+      const audioUrl = `${base_url}/tts?prompt=` + encodedPrompt;
+
+      console.log("▶️ Sending to /tts:", audioUrl);
+      audioPlayer.src = audioUrl;
+      audioPlayer.load();
+      audioPlayer.play().catch(err => console.error("Playback error:", err));
     });
 
-    // ---------- 🎤 Voice Assistant ----------
-    const recordButton = document.getElementById('recordButton');
-    const recordStatus = document.getElementById('recordStatus');
-    const assistantAudio = document.getElementById('assistantAudio');
-    const userTranscript = document.getElementById('userTranscript');
-    const assistantReply = document.getElementById('assistantReply');
+    // 🔵 2. LLM + TTS (gọi OpenAI rồi phát kết quả)
+    document.getElementById("chatBtn").addEventListener("click", function() {
+      const prompt = promptInput.value.trim();
+      if (!prompt) return alert("Please enter a prompt first!");
 
-    let mediaRecorder = null;
-    let recordedChunks = [];
-    let isRecording = false;
+      const encodedPrompt = encodeURIComponent(prompt);
+      const audioUrl = `${base_url}/chat_tts?prompt=` + encodedPrompt;
 
-    async function startRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        recordedChunks = [];
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-        mediaRecorder = new MediaRecorder(stream, { mimeType });
-
-        mediaRecorder.addEventListener('dataavailable', e => {
-          if (e.data.size > 0) recordedChunks.push(e.data);
-        });
-        mediaRecorder.addEventListener('stop', handleRecordingStopRealtime);
-
-        mediaRecorder.start();
-        isRecording = true;
-        recordButton.textContent = 'Stop Recording';
-        recordStatus.textContent = 'Recording…';
-      } catch (err) {
-        console.error('Microphone access error:', err);
-        recordStatus.textContent = 'Microphone permission denied';
-      }
-    }
-
-    async function stopRecording() {
-      if (!mediaRecorder) return;
-      mediaRecorder.stop();
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
-      isRecording = false;
-      recordButton.textContent = 'Start Recording';
-      recordStatus.textContent = 'Processing…';
-    }
-
-    recordButton.addEventListener('click', () => {
-      if (isRecording) stopRecording();
-      else startRecording();
+      console.log("🤖 Sending to /chat_tts:", audioUrl);
+      audioPlayer.src = audioUrl;
+      audioPlayer.load();
+      audioPlayer.play().catch(err => console.error("Playback error:", err));
     });
-
-    async function handleRecordingStopRealtime() {
-      const audioBlob = new Blob(recordedChunks, { type: 'audio/webm;codecs=opus' });
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'input.webm');
-
-      try {
-        const response = await fetch(`${baseUrl}/voice-assistant-stream?ts=${Date.now()}`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorPayload = await response.json().catch(() => ({}));
-          throw new Error(errorPayload.error || `Request failed: ${response.status}`);
-        }
-
-        // 🧠 Lấy transcript & reply text từ header
-        userTranscript.textContent = response.headers.get('X-Transcript') || '—';
-        assistantReply.textContent = response.headers.get('X-Assistant-Text') || '—';
-
-        // 🎧 Phát realtime bằng Web Audio API
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const reader = response.body.getReader();
-        let audioBuffer = [];
-        const decoder = async (data) => {
-          try {
-            const buf = await audioCtx.decodeAudioData(data);
-            const src = audioCtx.createBufferSource();
-            src.buffer = buf;
-            src.connect(audioCtx.destination);
-            src.start();
-          } catch (e) { /* skip partial */ }
-        };
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            audioBuffer.push(value);
-            const blob = new Blob(audioBuffer, { type: 'audio/wav' });
-            const arrBuf = await blob.arrayBuffer();
-            decoder(arrBuf);
-          }
-        }
-
-        recordStatus.textContent = 'Done ✅';
-      } catch (err) {
-        console.error('Streaming error:', err);
-        recordStatus.textContent = err.message;
-      } finally {
-        mediaRecorder = null;
-      }
-    }
   </script>
 </body>
 </html>
