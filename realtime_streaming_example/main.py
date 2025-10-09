@@ -14,9 +14,14 @@ def patched_setup_engine(self):
     """Custom setup giữ engine persistent, tương thích mọi version vLLM."""
     engine_args = AsyncEngineArgs(
         model=self.model_name,
-        dtype=self.dtype,
-        max_model_len=32768,
+        dtype="float16",
+        quantization="bitsandbytes",
+        load_format="bitsandbytes",
+        enable_chunked_prefill=True,
+        max_model_len=4096,
         gpu_memory_utilization=0.9,
+        tensor_parallel_size=1,
+        pipeline_parallel_size=1,
         trust_remote_code=True,
         disable_log_stats=True,
         enforce_eager=False,
