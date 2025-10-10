@@ -57,7 +57,7 @@
 
   <script>
     // Thay đổi URL tương ứng với RunPod / server của bạn
-    const base_url = `https://9yb7vrl6r4qdu6-8080.proxy.runpod.net`;
+    const base_url = `https://6enqs5hqm5lqna-8080.proxy.runpod.net`;
 
     const audioPlayer = document.getElementById("audioPlayer");
     const promptInput = document.getElementById("promptInput");
@@ -69,7 +69,7 @@
       if (!prompt) return alert("Please enter a prompt first!");
 
       const encodedPrompt = encodeURIComponent(prompt);
-      const audioUrl = `${base_url}/tts_v2_streamed?prompt=` + encodedPrompt;
+      const audioUrl = `${base_url}/tts?prompt=` + encodedPrompt;
 
       console.log("▶️ Sending to /tts:", audioUrl);
       audioPlayer.src = audioUrl;
